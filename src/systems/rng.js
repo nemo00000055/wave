@@ -7,3 +7,5 @@ export const float01 = (prng)=> prng.next();
 export const int = (prng,min,max)=> Math.floor(float01(prng)*(max-min+1))+min;
 export function pick(prng,arr){ return arr[int(prng,0,arr.length-1)]; }
 export function shuffle(prng,arr){ const a=arr.slice(); for(let i=a.length-1;i>0;i--){ const j=int(prng,0,i); [a[i],a[j]]=[a[j],a[i]];} return a; }
+
+export const seeded = (seed)=> createPRNG(seed);

@@ -19,3 +19,5 @@ export function makeGoldRoll([min,max], prng) {
   const range = Math.max(0, max - min);
   return Math.floor(min + float01(rng) * range);
 }
+
+export function createLoot(state){ return []; }

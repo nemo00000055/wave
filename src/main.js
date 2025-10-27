@@ -236,3 +236,58 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') document.querySelectorAll('.modal[open]').forEach(m => m.removeAttribute('open'));
   });
 });
+
+
+// --- Minimal bootstrap (non-destructive) ---
+import { $, openModal } from './ui/dom.js';
+import { renderAll } from './ui/render.js';
+import { Player } from './models/player.js';
+import { HEROES, CREATURES } from './systems/constants.js';
+import { seeded } from './systems/rng.js';
+import { saveToStorage, loadFromStorage } from './systems/save.js';
+import { startBattle, stepBattle, resolveWaveOutcome } from './systems/combat.js';
+
+window.__state = window.__state || { meta:{ wave:1, theme:'Plains', auto:{running:false,speedMs:800}, shopBuyback:[] } };
+window.__rng = window.__rng || seeded('seed-ui');
+
+function pickBase(){
+  const heroId = $('#select-hero')?.value || HEROES[0].id;
+  const h = HEROES.find(x=>x.id===heroId) || HEROES[0];
+  return h.base;
+}
+
+function ensurePlayer(){
+  if (!window.__state.player){
+    const base = pickBase();
+    window.__state.player = new Player('Hero', base);
+  }
+}
+
+function initUI(){
+  renderAll(window.__state);
+  $('#btn-start')?.addEventListener('click', ()=>{
+    ensurePlayer();
+    const wave = { enemies:[ { name:'Slime', stats:{ hp:10,maxHp:10, atk:4,def:1,crit:0.05, speed:8 } } ] };
+    const { state } = startBattle(window.__state.player, wave, window.__rng);
+    window.__battle = state;
+    document.getElementById('battle-log').textContent = 'Battle started...';
+  });
+  $('#btn-save')?.addEventListener('click', ()=>{
+    const st = { rngSeed: window.__rng.seed, player: window.__state.player, meta: window.__state.meta };
+    const res = saveToStorage('mythic-arena-save', st);
+    document.getElementById('battle-log').textContent = res.ok? 'Saved.' : ('Save error: '+res.error);
+  });
+  $('#btn-load')?.addEventListener('click', ()=>{
+    const res = loadFromStorage('mythic-arena-save');
+    if (res.ok){ window.__state = { ...res.state, meta: res.state.meta }; window.__rng = res.state.rng; renderAll(window.__state);
+      document.getElementById('battle-log').textContent = 'Loaded.';
+    } else {
+      document.getElementById('battle-log').textContent = 'Load error: ' + res.error;
+    }
+  });
+  $('#btn-equipment')?.addEventListener('click', ()=> openModal('panel-equipment'));
+  $('#btn-inventory')?.addEventListener('click', ()=> openModal('panel-inventory'));
+  $('#btn-shop')?.addEventListener('click', ()=> openModal('panel-shop'));
+}
+
+document.addEventListener('DOMContentLoaded', initUI);
