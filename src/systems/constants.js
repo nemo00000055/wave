@@ -1,9 +1,1 @@
-export const HEROES = [
-  { id:'warrior', name:'Warrior', base:{ hp:30, atk:7, def:3, crit:0.1, speed:10 } },
-  { id:'ranger',  name:'Ranger',  base:{ hp:26, atk:8, def:2, crit:0.15, speed:12 } },
-];
-export const CREATURES = [
-  { id:'slime', name:'Slime', base:{ hp:18, atk:4, def:1, crit:0.05, speed:8 } },
-  { id:'wolf',  name:'Wolf',  base:{ hp:22, atk:6, def:2, crit:0.1,  speed:11 } },
-];
-export const THEME_ROTATION = ['Plains','Forest','Caves','Tundra'];
+export const HEROES=[{id:'warrior',name:'Warrior',base:{hp:30,atk:7,def:3,crit:0.1,speed:10}},{id:'ranger',name:'Ranger',base:{hp:26,atk:8,def:2,crit:0.15,speed:12}}];export const CREATURES=[{id:'slime',name:'Slime',base:{hp:18,atk:4,def:1,crit:0.05,speed:8}},{id:'wolf',name:'Wolf',base:{hp:22,atk:6,def:2,crit:0.1,speed:11}}];export const THEME_ROTATION=['Plains','Forest','Caves','Tundra'];

@@ -24,16 +24,3 @@ export async function sellItem(state, itemId, price){
     return { ok:true, state: next };
   }catch(e){ return { ok:false, error:String(e) }; }
 }
-
-
-export class Shop{
-  constructor(){}
-  async buy(state, item){ 
-    const res = await (await import('./shop.js')).buyItem?.(state, item);
-    return res || { ok:false, error:'buy_not_implemented' };
-  }
-  async sell(state, id, price){
-    const res = await (await import('./shop.js')).sellItem?.(state, id, price);
-    return res || { ok:false, error:'sell_not_implemented' };
-  }
-}

@@ -1,16 +1,1 @@
-export const $ = (sel, root=document) => root.querySelector(sel);
-export const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
-
-export function openModal(id){
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.removeAttribute('hidden');
-  el.ariaHidden = "false";
-  el.focus?.();
-}
-export function closeModal(id){
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.setAttribute('hidden', '');
-  el.ariaHidden = "true";
-}
+export const $=(s,r=document)=>r.querySelector(s);export const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));export function openModal(id){const e=document.getElementById(id);if(e){e.hidden=false;e.ariaHidden='false';}}export function closeModal(id){const e=document.getElementById(id);if(e){e.hidden=true;e.ariaHidden='true';}}
