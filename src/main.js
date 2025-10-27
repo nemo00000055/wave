@@ -1,343 +1,238 @@
-// src/main.js
-import { $, el, clear, openModal, bindDialogControls } from "../ui/dom.js";
-import { buildSelect, renderAll } from "../ui/render.js";
-import { setupEquipmentPanel, renderEquipment, setupInventoryPanel, renderInventory, setupShopPanel, renderShop } from "../ui/panels.js";
-import { HEROES, CREATURES } from "../systems/constants.js";
-import { themeForWave, previewWaveText } from "../systems/themeManager.js";
-import { rollWaveEnemies } from "../systems/waveManager.js";
-import { createLoot } from "../systems/loot.js";
-import { createEquipment, createPotion } from "../models/item.js";
-import { Inventory } from "../models/inventory.js";
-import { Player } from "../models/player.js";
-import { seeded, pick } from "../systems/rng.js";
-import { Shop } from "../systems/shop.js";
+// src/main.js  (ES module)
+import { $, openModal, closeModal } from '../ui/dom.js';
+import { renderAll } from '../ui/render.js';
+import {
+  setupEquipmentPanel, renderEquipment,
+  setupInventoryPanel, renderInventory,
+  setupShopPanel, renderShop
+} from '../ui/panels.js';
+import { Shop } from '../systems/shop.js';
+import { themeForWave } from '../systems/themeManager.js';
+import { createLoot } from '../systems/loot.js';
+import { seeded } from '../systems/rng.js';
+import { Player } from '../models/player.js';
+import { HEROES, CREATURES, THEME_ROTATION } from '../systems/constants.js';
 
-const SAVE_KEY = "mythic-arena-save";
+const SAVE_KEY = 'mythic-arena-save';
 
 const state = {
-  side: "hero",
+  side: null,
   wave: 1,
-  theme: themeForWave(1),
+  theme: THEME_ROTATION[0],
+  auto: { running: false, speedMs: 800 },
   player: null,
   lists: { hero: [], creature: [] },
-  inventory: new Inventory(),
-  shop: null,
-  started: false,
-  autoplay: false,
-  speedMs: 800,
-  nextPreview: null,
-  nextPreviewText: "—",
+  shop: new Shop(),
+  inventory: { items: [], stash: [], buyback: [] },
+  ui: {
+    invFilterRarity: 'all',
+    invFilterSlot: 'all',
+    invSortKey: 'rarity',
+    invSortDir: 'desc',
+    shopFilterRarity: 'all',
+    shopFilterSlot: 'all',
+    shopSortKey: 'rarity',
+    shopSortDir: 'desc',
+  }
 };
-window.state = state;
 
-function randList(source, n=10){
-  const s = [...source];
-  const out = [];
-  while(out.length < n && s.length){
-    const i = Math.floor(Math.random()*s.length);
-    out.push(s.splice(i,1)[0]);
+window.state = state; // debug hook
+
+// ---------- List initialization that cannot fail ----------
+function pickNUnique(arr, n, rand) {
+  const set = new Set();
+  while (set.size < Math.min(n, arr.length)) {
+    set.add(arr[Math.floor(rand() * arr.length)]);
   }
-  return out;
+  return Array.from(set);
 }
-
-function init(){
-  seeded(Date.now());
-  state.lists.hero = randList(HEROES, 10);
-  state.lists.creature = randList(CREATURES, 10);
-
-  state.shop = new Shop(
-    (type)=>createEquipment(type, Math.floor(state.wave/10)),
-    ()=>createPotion()
-  );
-
-  bindDialogControls();
-  bindUI();
-
-  buildSelect(state);
-  renderAll({...state, player: state.player || { xp:0, xpNeeded:()=>50, hp:0, maxHP:()=>100, specialReady:()=>false }});
-
-  updateNextPreview();
-}
-
-function bindUI(){
-  $("#select-side").addEventListener("change", ()=>{
-    state.side = $("#select-side").value;
-    buildSelect(state);
-    updateSpecialButton();
-  });
-  $("#select-hero").addEventListener("change", ()=>{
-    if(state.side==="hero"){ $("#select-creature").selectedIndex = -1; }
-    updateSpecialButton();
-  });
-  $("#select-creature").addEventListener("change", ()=>{
-    if(state.side==="creature"){ $("#select-hero").selectedIndex = -1; }
-    updateSpecialButton();
-  });
-
-  $("#input-name").addEventListener("input", ()=>{
-    if(state.player){ state.player.name = $("#input-name").value.trim() || "Player"; renderAll(state); }
-  });
-
-  $("#btn-start").addEventListener("click", startGame);
-  $("#btn-next").addEventListener("click", ()=>nextWave("normal"));
-  $("#btn-special").addEventListener("click", ()=>nextWave("special"));
-  $("#btn-auto").addEventListener("click", toggleAuto);
-  $("#range-speed").addEventListener("input", (e)=>{
-    const v = Number(e.target.value);
-    state.speedMs = Math.floor(1200 - v*10.5);
-  });
-
-  $("#btn-equipment").addEventListener("click", ()=>{ setupEquipmentPanel(state); openModal("dlg-equipment"); });
-  $("#btn-inventory").addEventListener("click", ()=>{ setupInventoryPanel(state); openModal("dlg-inventory"); });
-  $("#btn-shop").addEventListener("click", ()=>{ setupShopPanel(state); openModal("dlg-shop"); });
-
-  $("#btn-save").addEventListener("click", saveGame);
-  $("#btn-load").addEventListener("click", loadGame);
-}
-
-function updateSpecialButton(){
-  const cls = selectedClass();
-  const btn = $("#btn-special");
-  if(cls) btn.textContent = "Special";
-}
-
-function selectedClass(){
-  if(state.side==="hero"){
-    const v = $("#select-hero").value;
-    return v || null;
-  } else {
-    const v = $("#select-creature").value;
-    return v || null;
+function initLists(force = false) {
+  const rand = seeded(Date.now());
+  if (force || !Array.isArray(state.lists?.hero) || state.lists.hero.length === 0) {
+    state.lists.hero = pickNUnique(HEROES, 10, rand);
+  }
+  if (force || !Array.isArray(state.lists?.creature) || state.lists.creature.length === 0) {
+    state.lists.creature = pickNUnique(CREATURES, 10, rand);
   }
 }
 
-function startGame(){
-  const name = $("#input-name").value.trim() || "Player";
-  const cls = selectedClass();
-  if(!cls){ alert("Pick a class from your side."); return; }
-  state.player = new Player(name, cls);
-  state.started = true;
-  $("#btn-next").disabled = false;
-  $("#btn-special").disabled = !state.player.specialReady();
-
-  state.player.gold = 50;
-  const starterTypes = ["weapon","armor","trinket","boots","headgear","hands"];
-  for(const t of starterTypes){
-    const baseItem = createEquipment(t, 0);
-    baseItem.rarityKey = (Math.random()<0.5) ? "Normal" : "Common";
-    baseItem.name = `${baseItem.rarityKey} ${t[0].toUpperCase()+t.slice(1)}`;
-    state.player.equipped[t] = baseItem;
-  }
-
-  for(let i=0;i<6;i++) state.inventory.add(createEquipment(pick(starterTypes), 0));
-  state.shop.refresh(true);
-
-  const trait = state.player.passives();
-  $("#btn-special").textContent = trait.special?.name || "Special";
-
-  updateNextPreview();
-  renderAll(state);
-}
-
-function updateNextPreview(){
-  const enemyBase = state.side==="hero" ? state.lists.creature : state.lists.hero;
-  const roll = rollWaveEnemies(state.wave, state.side, enemyBase);
-  state.nextPreview = roll.enemies;
-  state.theme = roll.flags.theme;
-  state.nextPreviewText = (awaitPreviewText(roll.enemies));
-  renderAll(state);
-}
-
-function awaitPreviewText(list){
-  // Inlined import fallback for simplicity (same as previewWaveText)
-  if(!list || !list.length) return "—";
-  const counts = new Map();
-  for(const n of list) counts.set(n, (counts.get(n)||0)+1);
-  const parts = [...counts.entries()].sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0])).map(([name,c])=>`${c}x ${name}`);
-  return parts.join(", ");
-}
-
-let autoTimer = null;
-function toggleAuto(){
-  state.autoplay = !state.autoplay;
-  $("#btn-auto").textContent = `Auto: ${state.autoplay? "On":"Off"}`;
-  if(state.autoplay){
-    if(autoTimer) clearInterval(autoTimer);
-    autoTimer = setInterval(()=>{
-      if(!state.started) return;
-      nextWave("normal");
-    }, Math.max(150, state.speedMs));
-  } else {
-    if(autoTimer) clearInterval(autoTimer);
-    autoTimer = null;
-  }
-}
-
-function logLine(text){
-  const ul = $("#log");
-  const li = el("li",null,text);
-  ul.append(li);
-  while(ul.children.length > 200) ul.removeChild(ul.firstChild);
-  ul.scrollTop = ul.scrollHeight;
-}
-
-function resolveDamage(player, diff, useSpecial){
-  const atk = player.atk();
-  const def = player.def();
-  const baseDmg = Math.max(1, Math.floor(atk * (useSpecial ? (player.passives().special?.mult||1.5) : 1)));
-  const mitig = Math.max(0, Math.floor(diff*8 - def*0.6));
-  const dmgTakenMul = player.setBonus().dmgTakenMul || 1;
-  const taken = Math.max(0, Math.floor(mitig * dmgTakenMul));
-  const kills = Math.max(1, Math.floor((atk*0.12) + (useSpecial?2:1)));
-  const flatHeal = useSpecial ? (player.passives().special?.flatHeal||0) : 0;
-  return { dealt: baseDmg, taken, kills, flatHeal };
-}
-
-function grantLoot(flags){
-  const drops = createLoot(flags);
-  for(const d of drops){
-    if(d.kind==="potion"){
-      state.inventory.items.push(d);
-    } else {
-      const item = createEquipment(d.type, (flags.isBoss?2:0) + (flags.isSuper?4:0));
-      state.inventory.items.push(item);
-    }
-  }
-  return drops;
-}
-
-function restockIfNeeded(){
-  if(state.wave % 20 === 0){
-    state.shop.refresh(true);
-    renderShop(state);
-  }
-}
-
-function goldGainBase(flags){
-  let g = 10 + Math.floor(state.wave * 1.2);
-  if(flags.isElite) g += 8;
-  if(flags.isBoss) g += 15;
-  if(flags.isSuper) g += 30;
-  g = Math.floor(g * (1 + state.player.goldPct()/100));
-  return g;
-}
-
-function nextWave(mode="normal"){
-  if(!state.started) return;
-
-  const enemyBase = state.side==="hero" ? state.lists.creature : state.lists.hero;
-  const roll = rollWaveEnemies(state.wave, state.side, enemyBase);
-  const { flags } = roll;
-  const useSpecial = (mode==="special");
-  if(useSpecial && !state.player.specialReady()){
-    logLine("❌ Special is on cooldown.");
-    return;
-  }
-
-  const res = resolveDamage(state.player, flags.diff, useSpecial);
-  const lsHeal = Math.floor(res.kills * (state.player.lifestealPct()/100) * 10);
-  state.player.hp = Math.min(state.player.maxHP(), Math.max(0, state.player.hp - res.taken + lsHeal + (res.flatHeal||0)));
-
-  const xp = 8 + Math.floor(flags.diff*3);
-  const ding = state.player.addXP(xp);
-
-  const goldGain = goldGainBase(flags);
-  state.player.gold += goldGain;
-  const drops = grantLoot(flags);
-
-  if(useSpecial){
-    state.player.setSpecialOnCooldown();
-  } else {
-    state.player.tickSpecialCD();
-  }
-
-  const tag = flags.isSuper ? "🟥 SUPER" : (flags.isBoss ? "🟧 Boss" : (flags.isElite?"🟨 Elite":"🟩"));
-  logLine(`${tag} Wave ${state.wave}: dealt ${res.dealt}, took ${res.taken}, kills ${res.kills}, +${xp}xp, +${goldGain}g, loot x${drops.length}`);
-
-  state.wave++;
-  state.theme = themeForWave(state.wave);
-  restockIfNeeded();
-  updateNextPreview();
-  renderAll(state);
-  // safe re-renders if panels are open
-  try{ renderEquipment(state); }catch(e){}
-  try{ renderInventory(state); }catch(e){}
-  try{ renderShop(state); }catch(e){}
-
-  if(state.player.hp <= 0){
-    const penalty = Math.min(state.player.gold, 30);
-    state.player.gold -= penalty;
-    state.player.hp = Math.floor(state.player.maxHP()*0.6);
-    logLine(`💀 You were overwhelmed. Lost ${penalty}g, recovered to ${state.player.hp} HP.`);
-  }
-}
-
-function saveGame(){
-  if(!state.player){ alert("Start a run first."); return; }
-  const data = {
+function save() {
+  const blob = {
     side: state.side,
     wave: state.wave,
     theme: state.theme,
-    player: {
-      name: state.player.name,
-      className: state.player.className,
-      level: state.player.level,
-      xp: state.player.xp,
-      gold: state.player.gold,
-      hp: state.player.hp,
-      talents: state.player.talents,
-      equipped: state.player.equipped
-    },
-    inventory: state.inventory.items,
-    stash: state.inventory.stash,
-    buyback: state.inventory.buyback,
-    shop: {
-      stock: state.shop.stock,
-      restockId: state.shop.restockId,
-      featuredId: state.shop.featuredId
-    },
+    player: state.player?.serialize ? state.player.serialize() : null,
+    inventory: state.inventory,
+    shop: state.shop.serialize(),
     lists: state.lists
   };
-  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-  logLine("💾 Saved.");
+  localStorage.setItem(SAVE_KEY, JSON.stringify(blob));
 }
 
-function loadGame(){
+function load() {
   const raw = localStorage.getItem(SAVE_KEY);
-  if(!raw){ alert("No save found."); return; }
-  try{
+  if (!raw) return false;
+  try {
     const data = JSON.parse(raw);
-    state.side = data.side;
-    state.wave = data.wave;
-    state.theme = data.theme;
-    state.player = new Player(data.player.name, data.player.className);
-    Object.assign(state.player, {
-      level:data.player.level, xp:data.player.xp, gold:data.player.gold,
-      hp:data.player.hp, talents:data.player.talents, equipped:data.player.equipped
-    });
-    state.inventory.items = data.inventory||[];
-    state.inventory.stash = data.stash||[];
-    state.inventory.buyback = data.buyback||[];
-    state.shop = new Shop(
-      (type)=>createEquipment(type, Math.floor(state.wave/10)),
-      ()=>createPotion()
-    );
-    state.shop.stock = data.shop.stock;
-    state.shop.restockId = data.shop.restockId;
-    state.shop.featuredId = data.shop.featuredId;
-    state.lists = data.lists;
-
-    $("#select-side").value = state.side;
-    buildSelect(state);
-    $("#input-name").value = state.player.name;
-    state.started = true;
-    updateNextPreview();
-    renderAll(state);
-    logLine("📂 Loaded save.");
-  }catch(e){
-    console.error(e);
-    alert("Failed to load save.");
+    state.side = data.side ?? null;
+    state.wave = data.wave ?? 1;
+    state.theme = data.theme ?? THEME_ROTATION[0];
+    state.shop = Shop.deserialize(data.shop ?? {});
+    state.inventory = data.inventory || state.inventory;
+    state.player = data.player ? Player.deserialize(data.player) : null;
+    state.lists = data.lists || { hero: [], creature: [] };
+    // Ensure lists even if save was bad
+    initLists(false);
+    return true;
+  } catch {
+    return false;
   }
 }
 
-init();
+function clearSave() {
+  localStorage.removeItem(SAVE_KEY);
+}
+
+// ---------- Game Over overlay ----------
+function showGameOver() {
+  state.auto.running = false;
+  let overlay = document.getElementById('gameover-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'gameover-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.85)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: '9999'
+    });
+    overlay.innerHTML = `
+      <div style="background:#141414;border:1px solid #2a2a2a;border-radius:14px;padding:28px;max-width:480px;text-align:center;">
+        <h2 style="margin:0 0 12px;font-size:28px;">Game Over</h2>
+        <p style="opacity:.85;margin:0 0 20px;">Your character has fallen on wave ${state.wave}. Try a new run!</p>
+        <button id="btn-return-title" class="btn primary">Return to Title</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    $('#btn-return-title').addEventListener('click', () => {
+      window.location.href = 'index.html';
+    });
+  }
+}
+
+// ---------- Wave Resolution ----------
+let autoTimer = null;
+
+async function nextWave(mode = 'normal') {
+  if (!state.player) return;
+
+  const { isBoss, isElite, isSuper, enemies, diff } = await window.waveManager.roll(state);
+  const res = await window.combat.resolve({
+    player: state.player, mode, diff, enemies, isBoss, isElite, isSuper
+  });
+
+  state.player.gold += Math.floor(res.goldGained * (1 + state.player.goldPct()));
+  state.player.addXP(res.xpGained);
+
+  if (state.player.hp <= 0) {
+    const li = document.createElement('li');
+    li.textContent = `Defeated on wave ${state.wave}.`;
+    $('#log').prepend(li);
+    renderAll(state);
+    showGameOver();
+    return;
+  }
+
+  if (res.kills > 0) {
+    const loot = createLoot({ isBoss, isElite, isSuper });
+    state.inventory.items.push(...loot);
+  }
+
+  state.wave += 1;
+  state.theme = themeForWave(state.wave);
+
+  // Auto restock every 20
+  if (state.wave % 20 === 0) {
+    state.shop.refresh(true);
+  }
+
+  renderAll(state);
+  save();
+
+  if (state.auto.running) {
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(() => nextWave('auto'), state.auto.speedMs);
+  }
+}
+
+function toggleAuto() {
+  state.auto.running = !state.auto.running;
+  if (state.auto.running) {
+    nextWave('auto');
+  } else {
+    clearTimeout(autoTimer);
+  }
+}
+
+function startRun() {
+  const name = $('#input-name')?.value?.trim();
+  const side = ($('#select-side')?.value || '').toLowerCase();
+  const pick = side === 'hero' ? $('#select-hero')?.value : $('#select-creature')?.value;
+  if (!name || !pick) return;
+
+  state.side = side;
+  state.player = new Player(name, pick);
+  state.wave = 1;
+  state.theme = THEME_ROTATION[0];
+
+  renderAll(state);
+  save();
+}
+
+// ---------- DOM Ready ----------
+document.addEventListener('DOMContentLoaded', () => {
+  const hash = (window.location.hash || '').replace('#', '');
+
+  if (hash === 'new') {
+    clearSave();
+    initLists(true);
+  } else if (hash === 'load') {
+    if (!load()) initLists(true);
+  } else {
+    if (!load()) initLists(true);
+  }
+
+  // One more belt-and-suspenders: if lists are still empty, fill now.
+  initLists(false);
+
+  renderAll(state);
+
+  // Controls
+  $('#btn-start')?.addEventListener('click', startRun);
+  $('#btn-next')?.addEventListener('click', () => nextWave('normal'));
+  $('#btn-special')?.addEventListener('click', () => nextWave('special'));
+  $('#btn-auto')?.addEventListener('click', toggleAuto);
+  $('#range-speed')?.addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    state.auto.speedMs = 100 + (1000 - 100) * (100 - v) / 100;
+  });
+
+  // Panels
+  setupEquipmentPanel(state);
+  setupInventoryPanel(state);
+  setupShopPanel(state);
+
+  // Modals
+  $('#btn-equipment')?.addEventListener('click', () => { openModal('dlg-equipment'); renderEquipment(state); });
+  $('#btn-inventory')?.addEventListener('click', () => { openModal('dlg-inventory'); renderInventory(state); });
+  $('#btn-shop')?.addEventListener('click', () => { openModal('dlg-shop'); renderShop(state); });
+
+  // Save/Load
+  $('#btn-save')?.addEventListener('click', save);
+  $('#btn-load')?.addEventListener('click', () => { load(); renderAll(state); });
+
+  // Close buttons & ESC
+  document.querySelectorAll('[data-close]').forEach(btn => {
+    btn.addEventListener('click', (e) => closeModal(e.currentTarget.getAttribute('data-close')));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') document.querySelectorAll('.modal[open]').forEach(m => m.removeAttribute('open'));
+  });
+});

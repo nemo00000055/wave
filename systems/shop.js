@@ -1,37 +1,89 @@
 // systems/shop.js
+import { createPotion, createEquipment } from '../models/item.js';
+import { ITEM_TYPES } from './constants.js';
+import { seeded, uid, pick } from './rng.js';
+
 export class Shop {
-  constructor(makeItem, makePotion){
-    this.makeItem = makeItem;
-    this.makePotion = makePotion;
+  constructor() {
     this.stock = {
-      Consumables: [],
-      Weapon: [],
-      Armor: [],
-      Trinket: [],
-      Boots: [],
-      Headgear: [],
-      Hands: [],
-      Buyback: []
+      consumables: [],
+      weapon: [],
+      armor: [],
+      trinket: [],
+      boots: [],
+      headgear: [],
+      hands: [],
+      buyback: [], // not sold here; shown from inventory.buyback
     };
     this.restockId = 0;
     this.featuredId = null;
-    this.refresh();
+    this.refreshCostBase = 20;
+    this.refresh(true);
   }
-  refresh(big=true){
-    for(const k of Object.keys(this.stock)) if(k!=="Buyback") this.stock[k] = [];
-    for(let i=0;i<3;i++) this.stock.Consumables.push(this.makePotion());
-    const per = big?6:4;
-    const map = { Weapon:"weapon", Armor:"armor", Trinket:"trinket", Boots:"boots", Headgear:"headgear", Hands:"hands" };
-    for(const [tab,type] of Object.entries(map)){
-      for(let i=0;i<per;i++){
-        this.stock[tab].push(this.makeItem(type));
+
+  static deserialize(data) {
+    const s = new Shop();
+    s.stock = data.stock;
+    s.restockId = data.restockId;
+    s.featuredId = data.featuredId;
+    s.refreshCostBase = data.refreshCostBase || 20;
+    return s;
+  }
+  serialize() {
+    return {
+      stock: this.stock,
+      restockId: this.restockId,
+      featuredId: this.featuredId,
+      refreshCostBase: this.refreshCostBase
+    };
+  }
+
+  refresh(big = true) {
+    // big=true regenerates all tabs; featured is first generated equipment across tabs
+    const prng = seeded(Date.now() + this.restockId);
+    const genEquip = (slot, n) => {
+      const arr = [];
+      for (let i=0;i<n;i++) {
+        const it = createEquipment(slot, 0);
+        it.id = uid();
+        arr.push(it);
+        if (!this.featuredId) this.featuredId = it.id;
       }
-    }
-    const firstTab = ["Weapon","Armor","Trinket","Boots","Headgear","Hands"].find(t=>this.stock[t].length);
-    this.featuredId = firstTab ? this.stock[firstTab][0].id : null;
+      return arr;
+    };
+
+    // Consumables
+    this.stock.consumables = [
+      { id: uid(), type:'potion', name:'Minor Healing Potion', desc:'+30 HP on use', price: 25 },
+      { id: uid(), type:'potion', name:'Major Healing Potion', desc:'+80 HP on use', price: 60 },
+    ];
+
+    // Equipment
+    this.stock.weapon   = genEquip('weapon',   6);
+    this.stock.armor    = genEquip('armor',    6);
+    this.stock.trinket  = genEquip('trinket',  6);
+    this.stock.boots    = genEquip('boots',    6);
+    this.stock.headgear = genEquip('headgear', 6);
+    this.stock.hands    = genEquip('hands',    6);
+
     this.restockId++;
   }
-  refreshCost(){
-    return 20 + 10 * this.restockId;
+
+  refreshCost() {
+    return this.refreshCostBase + (this.restockId * 10);
+  }
+
+  isFeatured(item) {
+    return item && item.id === this.featuredId;
+  }
+
+  getStockForTab(tabKey) {
+    return this.stock[tabKey] || [];
+  }
+
+  removeFromTab(tabKey, id) {
+    const arr = this.stock[tabKey];
+    const idx = arr.findIndex(x => x.id === id);
+    if (idx >= 0) arr.splice(idx,1);
   }
 }
